@@ -80,8 +80,8 @@ proc newSpDb*[K](cfg: cfgaarray): ref SophiaDb =
   new(InsError).ckErrNil(driver, some "DB initialization failed: was `db` configured?")
   result.driver = driver
 
-type Document = pointer
-type Transaction = object
+type Document* = pointer
+type Transaction* = object
   txn: pointer
   db: ref SophiaDb
 
