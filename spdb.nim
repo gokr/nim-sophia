@@ -10,7 +10,6 @@ type
     env: pointer
     driver: pointer
 
-  Environment* = distinct pointer
   TxnError = Exception
   InsError = TxnError
   GetError = TxnError
@@ -66,6 +65,11 @@ proc ckedGetInt[K](o: pointer, path: K): string =
     exn.msg = "GET `@" & pstr & "` failed: Invalid configuration path"
     raise exn
 
+
+# Main DB constructor. Sets up and accounts for alloc/free of DB environment.
+# Must be configured in initial argument list with `{key: val}` Associatve Array
+# syntax tuple, using the legal values detailed online at
+# http://sophia.systems/v2.2/conf/sophia.html.
 proc newSpDb*[K](cfg: cfgaarray): SophiaDb =
   result = new SophiaDb
   result.env = env()
@@ -78,26 +82,39 @@ proc newSpDb*[K](cfg: cfgaarray): SophiaDb =
   new(InsError).ckErrNil(driver, some "DB initialization failed: was `db` configured?")
   result.driver = driver
 
-type Document* = pointer
-type Transaction* = object
-  txn: pointer
-  db: SophiaDb
 
-proc newDoc*[K, V](spdb: SophiaDb, k: K, v: V): Document =
+
+type
+  # `Document` represents either an association or deletion from a given
+  # transaction.
+  Document* = pointer
+  # `Transaction` represents a set of mutations to be applied to a given
+  # datastore.
+  Transaction* = object
+    txn: pointer
+    db: SophiaDb
+
+# `Document` constructor. Intended to be used primarily for associations.
+proc newDoc[K, V](spdb: SophiaDb, k: K, v: V): Document =
   result.ckedSetV(cstring"key", cstring k, 0)
   result.ckedSetV(cstring"value", cstring v, 0)
 
-proc newDoc*[K](spdb: SophiaDb, k: K): Document =
+# `Document` constructor. Intended to be used primarily for deletions.
+proc newDoc[K](spdb: SophiaDb, k: K): Document =
   result.ckedSetV(cstring"key", cstring k, 0)
 
+# Transaction constructor.
 proc newTxn*(spdb: SophiaDb): Transaction =
   result = Transaction(txn: begin(spdb.env), db: spdb)
   new(TxnError).ckErrNil(result.txn, none string)
 
+# Pushes a motion to associate the given key with the given value in the
+# datastore to the transaction.
 proc assoc*(txn: Transaction, doc: Document): Transaction =
   new(TxnError).ckErrno(txn.txn.set(doc), none string)
   result = txn
 
+# Pushes a motion to delete the given key from the datastore to the transaction.
 proc delete*[K](txn: Transaction, k: K): Transaction =
   let del = newDoc[K](k)
   let exn = new TxnError
@@ -105,7 +122,8 @@ proc delete*[K](txn: Transaction, k: K): Transaction =
   exn.delete(del).ckErrno(none string)
   result = txn
 
-# Returns whether the database was forced to roll back the transaction.
+# Attempts to persist the transaction to the datastore. Returns whether the
+# database was forced to roll it back.
 proc commit*(txn: Transaction): bool =
   let n = txn.txn.commit()
   new(TxnError).ckErrno(n, none string)
