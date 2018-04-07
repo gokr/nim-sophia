@@ -1,8 +1,6 @@
 import sophia,
-
-  math, times, tables,
-  unicode, strutils,
-  options, typetraits
+  strutils, unicode,
+  options
 
 type
   cfgatom = int64|string
