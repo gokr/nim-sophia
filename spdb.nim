@@ -66,7 +66,7 @@ proc ckedGetInt[K](o: pointer, path: K): string =
     exn.msg = "GET `@" & pstr & "` failed: Invalid configuration path"
     raise exn
 
-proc newSpDb*[K](cfg: cfgaarray): ref SophiaDb =
+proc newSpDb*[K](cfg: cfgaarray): SophiaDb =
   result = new SophiaDb
   result.env = env()
   var exn = new CfgError
@@ -81,16 +81,16 @@ proc newSpDb*[K](cfg: cfgaarray): ref SophiaDb =
 type Document* = pointer
 type Transaction* = object
   txn: pointer
-  db: ref SophiaDb
+  db: SophiaDb
 
-proc newDoc*[K, V](spdb: ref SophiaDb, k: K, v: V): Document =
+proc newDoc*[K, V](spdb: SophiaDb, k: K, v: V): Document =
   result.ckedSetV(cstring"key", cstring k, 0)
   result.ckedSetV(cstring"value", cstring v, 0)
 
-proc newDoc*[K](spdb: ref SophiaDb, k: K): Document =
+proc newDoc*[K](spdb: SophiaDb, k: K): Document =
   result.ckedSetV(cstring"key", cstring k, 0)
 
-proc newTxn*(spdb: ref SophiaDb): Transaction =
+proc newTxn*(spdb: SophiaDb): Transaction =
   result = Transaction(txn: begin(spdb.env), db: spdb)
   new(TxnError).ckErrNil(result.txn, none string)
 
@@ -114,6 +114,6 @@ proc commit*(txn: Transaction): bool =
 proc `=destroy`(doc: Document) =
   discard destroy(doc)
   
-proc `=destroy`(spdb: ref SophiaDb) =
+proc `=destroy`(spdb: SophiaDb) =
   discard spdb.driver.destroy()
   discard spdb.env.destroy()
