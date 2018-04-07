@@ -6,6 +6,7 @@ import sophia,
 
 type
   cfgatom = int64|string
+  # Allows {key: val} associative array notation
   cfgaarray*[K, V] = openarray[tuple[key: K, val: cfgatom]]
   SophiaDb* = object
     env: pointer
