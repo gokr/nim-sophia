@@ -109,7 +109,7 @@ proc delete*[K](txn: Transaction, k: K): Transaction =
 proc commit*(txn: Transaction): bool =
   let n = txn.txn.commit()
   new(TxnError).ckErrno(n, none string)
-  result = n == 2
+  n == 2
 
 proc `=destroy`(doc: Document) =
   discard destroy(doc)
