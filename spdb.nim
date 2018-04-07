@@ -15,6 +15,16 @@ type
   GetError = TxnError
   CfgError = Exception
 
+  Direction = enum
+    OpenGt, StrictGt, OpenLt, StrictLt
+
+func toString(o: Direction): string =
+  case o
+    of OpenGt: ">="
+    of StrictGt: ">"
+    of OpenLt: "<="
+    of StrictLt: "<"
+
 proc ckErrno(exn: ref object, e: cint, what: Option[string]) =
   if e != 0:
     exn.msg = if not what.isNone: what.get() else: ""
@@ -82,17 +92,9 @@ proc newSpDb*[K](cfg: cfgaarray): SophiaDb =
   new(InsError).ckErrNil(driver, some "DB initialization failed: was `db` configured?")
   result.driver = driver
 
-
-
-type
-  # `Document` represents either an association or deletion from a given
-  # transaction.
-  Document* = pointer
-  # `Transaction` represents a set of mutations to be applied to a given
-  # datastore.
-  Transaction* = object
-    txn: pointer
-    db: SophiaDb
+# `Document` represents either an association or deletion from a given
+# transaction.
+type Document* = pointer
 
 # `Document` constructor. Intended to be used primarily for associations.
 proc newDoc[K, V](spdb: SophiaDb, k: K, v: V): Document =
@@ -103,6 +105,53 @@ proc newDoc[K, V](spdb: SophiaDb, k: K, v: V): Document =
 proc newDoc[K](spdb: SophiaDb, k: K): Document =
   result.ckedSetV(cstring"key", cstring k, 0)
 
+proc `=destroy`(doc: Document) =
+  discard destroy(doc)
+ 
+proc get*[K](db: SophiaDb, k: K): tuple[p: pointer, sz: int] =
+  result.p = db.driver.get(result.p)
+  new(GetError).ckErrNil(result.p, none string)
+  result.p.getstring(cstring k, result.sz.addr)
+
+proc getInt*[K](db: SophiaDb, k: K): int64 =
+  result = db.driver.get[K]k.getint()
+  new(GetError).ckErrNil(result.p, none string)
+
+proc getStr*[K](db: SophiaDb, k: K): string =
+  result = db.driver.get[K]k.getstring()
+  new(GetError).ckErrNil(result.p, none string)
+
+proc set*[K, V](db: SophiaDb, k: K, v: V) =
+  let s = db.newDoc[K, V](k, v)
+  new(InsError).ckErrno(db.driver.set(s))
+
+func seq*[K](db: SophiaDb, o: Direction, prefix: Option[K]):
+    seq[tuple[p: pointer, sz: int]] =
+  var doc = Document
+  if prefix.isSome():
+    let p = cstring prefix.get()
+    doc.ckSetV(cstring"key", p, p.len)
+  doc.ckSetV(cstring"order", cstring string o, 0)
+  var cursor = db.env.cursor()
+  while doc != nil:
+    doc = cursor.get doc
+    let k = doc.ckedGetStr "key"
+    let v = doc.ckedGetStr "value"
+    result.add((k, v))
+  cursor.destroy()
+
+proc `=destroy`(spdb: SophiaDb) =
+  discard spdb.driver.destroy()
+  discard spdb.env.destroy()
+
+type
+  # `Transaction` represents a set of mutations to be applied to a given
+  # datastore.
+  Transaction* = object
+    txn: pointer
+    db: SophiaDb
+
+ 
 # Transaction constructor.
 proc newTxn*(spdb: SophiaDb): Transaction =
   result = Transaction(txn: begin(spdb.env), db: spdb)
@@ -119,19 +168,22 @@ proc delete*[K](txn: Transaction, k: K): Transaction =
   let del = newDoc[K](k)
   let exn = new TxnError
   exn.ckErrNil(del, none string)
-  exn.delete(del).ckErrno(none string)
+  txn.txn.delete(del).ckErrno(none string)
   result = txn
 
+# This is in the API for some reason ― "multi-statement transaction visibility?"
+# Porting...
+proc read*[K](txn: Transaction, k: K): Transaction =
+  let get = newDoc[K](k)
+  let exn = new GetError
+  txn.txn.get(get)
+  exn.ckErrNil(get, none string)
+
 # Attempts to persist the transaction to the datastore. Returns whether the
-# database was forced to roll it back.
+# database was forced to roll it back. Frees the transaction (no destroy()) —
+# Do not touch again!
 proc commit*(txn: Transaction): bool =
   let n = txn.txn.commit()
   new(TxnError).ckErrno(n, none string)
   n == 2
 
-proc `=destroy`(doc: Document) =
-  discard destroy(doc)
-  
-proc `=destroy`(spdb: SophiaDb) =
-  discard spdb.driver.destroy()
-  discard spdb.env.destroy()
